@@ -1,4 +1,4 @@
-# LLM Council
+# Multi LLM Council
 
 ![LLM Council](header.jpg)
 
