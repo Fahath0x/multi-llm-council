@@ -47,9 +47,73 @@ export const api = {
   },
 
   /**
+   * Get current council settings.
+   */
+  async getSettings() {
+    const response = await fetch(`${API_BASE}/api/settings`);
+    if (!response.ok) {
+      throw new Error('Failed to get council settings');
+    }
+    return response.json();
+  },
+
+  /**
+   * Update council settings.
+   */
+  async updateSettings(settings) {
+    const response = await fetch(`${API_BASE}/api/settings`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(settings),
+    });
+    if (!response.ok) {
+      throw new Error('Failed to update council settings');
+    }
+    return response.json();
+  },
+
+  /**
+   * List available curated models.
+   */
+  async getAvailableModels() {
+    const response = await fetch(`${API_BASE}/api/models`);
+    if (!response.ok) {
+      throw new Error('Failed to list available models');
+    }
+    return response.json();
+  },
+
+  /**
+   * List specialized council personas.
+   */
+  async getPersonas() {
+    const response = await fetch(`${API_BASE}/api/personas`);
+    if (!response.ok) {
+      throw new Error('Failed to list personas');
+    }
+    return response.json();
+  },
+
+  /**
+   * Delete a conversation permanently.
+   */
+  async deleteConversation(conversationId) {
+    const response = await fetch(
+      `${API_BASE}/api/conversations/${conversationId}`,
+      { method: 'DELETE' }
+    );
+    if (!response.ok && response.status !== 404) {
+      throw new Error('Failed to delete conversation');
+    }
+    return true;
+  },
+
+  /**
    * Send a message in a conversation.
    */
-  async sendMessage(conversationId, content) {
+  async sendMessage(conversationId, content, options = {}) {
     const response = await fetch(
       `${API_BASE}/api/conversations/${conversationId}/message`,
       {
@@ -57,7 +121,12 @@ export const api = {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ content }),
+        body: JSON.stringify({
+          content,
+          council_models: options.council_models,
+          chairman_model: options.chairman_model,
+          persona: options.persona,
+        }),
       }
     );
     if (!response.ok) {
@@ -70,10 +139,19 @@ export const api = {
    * Send a message and receive streaming updates.
    * @param {string} conversationId - The conversation ID
    * @param {string} content - The message content
+   * @param {object} options - Optional { council_models, chairman_model, persona }
    * @param {function} onEvent - Callback function for each event: (eventType, data) => void
    * @returns {Promise<void>}
    */
-  async sendMessageStream(conversationId, content, onEvent) {
+  async sendMessageStream(conversationId, content, options = {}, onEvent) {
+    // Handle backwards compatibility if onEvent passed as 3rd param
+    let actualOptions = options;
+    let actualOnEvent = onEvent;
+    if (typeof options === 'function') {
+      actualOnEvent = options;
+      actualOptions = {};
+    }
+
     const response = await fetch(
       `${API_BASE}/api/conversations/${conversationId}/message/stream`,
       {
@@ -81,7 +159,12 @@ export const api = {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ content }),
+        body: JSON.stringify({
+          content,
+          council_models: actualOptions.council_models,
+          chairman_model: actualOptions.chairman_model,
+          persona: actualOptions.persona,
+        }),
       }
     );
 
@@ -91,22 +174,30 @@ export const api = {
 
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
+    let lineBuffer = '';
 
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
 
-      const chunk = decoder.decode(value);
-      const lines = chunk.split('\n');
+      lineBuffer += decoder.decode(value, { stream: true });
+      const lines = lineBuffer.split('\n');
+      // The last element is either an incomplete line or empty string if line ended with \n
+      lineBuffer = lines.pop() || '';
 
-      for (const line of lines) {
-        if (line.startsWith('data: ')) {
-          const data = line.slice(6);
-          try {
-            const event = JSON.parse(data);
-            onEvent(event.type, event);
-          } catch (e) {
-            console.error('Failed to parse SSE event:', e);
+      for (const rawLine of lines) {
+        const line = rawLine.trim();
+        if (line.startsWith('data:')) {
+          const data = line.slice(5).trim();
+          if (data) {
+            try {
+              const event = JSON.parse(data);
+              if (actualOnEvent) {
+                actualOnEvent(event.type, event);
+              }
+            } catch (e) {
+              console.error('Failed to parse SSE event:', e, 'Raw:', data);
+            }
           }
         }
       }

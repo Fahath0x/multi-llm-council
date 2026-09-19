@@ -5,12 +5,45 @@ import os
 from datetime import datetime
 from typing import List, Dict, Any, Optional
 from pathlib import Path
-from .config import DATA_DIR
+from .config import DATA_DIR, COUNCIL_MODELS, CHAIRMAN_MODEL
 
 
 def ensure_data_dir():
     """Ensure the data directory exists."""
     Path(DATA_DIR).mkdir(parents=True, exist_ok=True)
+    settings_dir = os.path.dirname(DATA_DIR) if os.path.dirname(DATA_DIR) else "data"
+    Path(settings_dir).mkdir(parents=True, exist_ok=True)
+
+
+def get_settings() -> Dict[str, Any]:
+    """Get the current council settings."""
+    ensure_data_dir()
+    path = os.path.join(os.path.dirname(DATA_DIR) or "data", "settings.json")
+    if os.path.exists(path):
+        try:
+            with open(path, 'r') as f:
+                data = json.load(f)
+                if "council_models" in data and "chairman_model" in data and data["council_models"]:
+                    if "persona" not in data:
+                        data["persona"] = "strict_truth"
+                    return data
+        except Exception:
+            pass
+    return {
+        "council_models": COUNCIL_MODELS,
+        "chairman_model": CHAIRMAN_MODEL,
+        "persona": "strict_truth"
+    }
+
+
+
+def save_settings(settings: Dict[str, Any]) -> Dict[str, Any]:
+    """Save updated council settings."""
+    ensure_data_dir()
+    path = os.path.join(os.path.dirname(DATA_DIR) or "data", "settings.json")
+    with open(path, 'w') as f:
+        json.dump(settings, f, indent=2)
+    return settings
 
 
 def get_conversation_path(conversation_id: str) -> str:
@@ -131,16 +164,18 @@ def add_assistant_message(
     conversation_id: str,
     stage1: List[Dict[str, Any]],
     stage2: List[Dict[str, Any]],
-    stage3: Dict[str, Any]
+    stage3: Dict[str, Any],
+    metadata: Optional[Dict[str, Any]] = None
 ):
     """
-    Add an assistant message with all 3 stages to a conversation.
+    Add an assistant message with all 3 stages and metadata to a conversation.
 
     Args:
         conversation_id: Conversation identifier
         stage1: List of individual model responses
         stage2: List of model rankings
         stage3: Final synthesized response
+        metadata: Optional metadata (rankings, persona info)
     """
     conversation = get_conversation(conversation_id)
     if conversation is None:
@@ -150,10 +185,12 @@ def add_assistant_message(
         "role": "assistant",
         "stage1": stage1,
         "stage2": stage2,
-        "stage3": stage3
+        "stage3": stage3,
+        "metadata": metadata or {}
     })
 
     save_conversation(conversation)
+
 
 
 def update_conversation_title(conversation_id: str, title: str):
@@ -170,3 +207,20 @@ def update_conversation_title(conversation_id: str, title: str):
 
     conversation["title"] = title
     save_conversation(conversation)
+
+
+def delete_conversation(conversation_id: str) -> bool:
+    """
+    Delete a conversation from storage.
+
+    Args:
+        conversation_id: Conversation identifier
+
+    Returns:
+        True if deleted, False if not found
+    """
+    path = get_conversation_path(conversation_id)
+    if not os.path.exists(path):
+        return False
+    os.remove(path)
+    return True

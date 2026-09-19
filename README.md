@@ -1,87 +1,134 @@
 # LLM Council
 
-![llmcouncil](header.jpg)
+![LLM Council](header.jpg)
 
-The idea of this repo is that instead of asking a question to your favorite LLM provider (e.g. OpenAI GPT 5.1, Google Gemini 3.0 Pro, Anthropic Claude Sonnet 4.5, xAI Grok 4, eg.c), you can group them into your "LLM Council". This repo is a simple, local web app that essentially looks like ChatGPT except it uses OpenRouter to send your query to multiple LLMs, it then asks them to review and rank each other's work, and finally a Chairman LLM produces the final response.
+> **Multi-model deliberation with blind peer review.** Ask once, get a structured verdict from a panel of LLMs that anonymously rank each other — then a Chairman synthesizes the final answer.
 
-In a bit more detail, here is what happens when you submit a query:
+---
 
-1. **Stage 1: First opinions**. The user query is given to all LLMs individually, and the responses are collected. The individual responses are shown in a "tab view", so that the user can inspect them all one by one.
-2. **Stage 2: Review**. Each individual LLM is given the responses of the other LLMs. Under the hood, the LLM identities are anonymized so that the LLM can't play favorites when judging their outputs. The LLM is asked to rank them in accuracy and insight.
-3. **Stage 3: Final response**. The designated Chairman of the LLM Council takes all of the model's responses and compiles them into a single final answer that is presented to the user.
+## How It Works
 
-## Vibe Code Alert
+A query goes through three sequential stages, all streamed live:
 
-This project was 99% vibe coded as a fun Saturday hack because I wanted to explore and evaluate a number of LLMs side by side in the process of [reading books together with LLMs](https://x.com/karpathy/status/1990577951671509438). It's nice and useful to see multiple responses side by side, and also the cross-opinions of all LLMs on each other's outputs. I'm not going to support it in any way, it's provided here as is for other people's inspiration and I don't intend to improve it. Code is ephemeral now and libraries are over, ask your LLM to change it in whatever way you like.
+```
+User Query
+    │
+    ▼
+┌─────────────────────────────────────────┐
+│  Stage 1 — Parallel Independent Opinions│  ← All council models answer in parallel
+└────────────────────┬────────────────────┘
+                     │
+                     ▼
+┌─────────────────────────────────────────┐
+│  Stage 2 — Blind Peer Review & Ranking  │  ← Responses anonymised (A, B, C...)
+│  Kendall's W consensus score computed   │  ← Each model ranks the others
+└────────────────────┬────────────────────┘
+                     │
+                     ▼
+┌─────────────────────────────────────────┐
+│  Stage 3 — Chairman Synthesis           │  ← One model writes the final verdict
+└─────────────────────────────────────────┘
+```
+
+**Why blind review?** Models receive `Response A / B / C` labels — no model IDs — so they can't self-promote or defer to a famous name. The de-anonymisation happens client-side purely for display.
+
+---
+
+## Deliberation Modes (Personas)
+
+Switch the analytical framework per query:
+
+| Persona | Focus |
+|---|---|
+| ⚖️ **Strict Truth & Logic** | Zero sycophancy, error debunking, mathematical rigour |
+| 🛡️ **Security & Red Team** | OWASP Top 10, exploit vectors, hardened remediation |
+| 💻 **Principal Architect** | Big-O, system design, scalability trade-offs |
+| 🔬 **Scientific & Math Rigor** | Formal proofs, first-principles derivation |
+| 🚀 **Startup & Product Strategy** | PMF, unit economics, GTM moat |
+| 🧑‍⚖️ **Devil's Advocate** | Contrarian stress-tests, failure modes, blind spots |
+
+---
+
+## Stack
+
+| Layer | Tech |
+|---|---|
+| Backend | Python 3.10+, FastAPI, async httpx, SSE streaming |
+| Frontend | React 19, Vite 7, react-markdown |
+| LLM API | [OpenRouter](https://openrouter.ai) — any model, one key |
+| Storage | JSON flat-files (`data/conversations/`) |
+| Packaging | `uv` (Python), `npm` (JS) |
+| Tests | pytest, FastAPI TestClient — 50 offline unit tests |
+
+---
 
 ## Setup
 
-### 1. Install Dependencies
+### 1. Clone & install
 
-The project uses [uv](https://docs.astral.sh/uv/) for project management.
-
-**Backend:**
 ```bash
+# Python deps
 uv sync
+
+# Frontend deps
+cd frontend && npm install && cd ..
 ```
 
-**Frontend:**
-```bash
-cd frontend
-npm install
-cd ..
-```
-
-### 2. Configure API Key
-
-Create a `.env` file in the project root:
+### 2. API key
 
 ```bash
+# .env
 OPENROUTER_API_KEY=sk-or-v1-...
 ```
 
-Get your API key at [openrouter.ai](https://openrouter.ai/). Make sure to purchase the credits you need, or sign up for automatic top up.
+Get one at [openrouter.ai](https://openrouter.ai). Free-tier models are supported.
 
-### 3. Configure Models (Optional)
+### 3. Run
 
-Edit `backend/config.py` to customize the council:
+```bash
+# Option A — one command
+./start.sh
+
+# Option B — two terminals
+uv run python -m backend.main   # → http://localhost:8001
+cd frontend && npm run dev      # → http://localhost:5173
+```
+
+### 4. Test
+
+```bash
+uv run pytest tests/ -v
+```
+
+---
+
+## Configuration
+
+Council models and chairman are configurable live via the UI **Settings** panel, or via `backend/config.py` as defaults:
 
 ```python
 COUNCIL_MODELS = [
-    "openai/gpt-5.1",
-    "google/gemini-3-pro-preview",
-    "anthropic/claude-sonnet-4.5",
-    "x-ai/grok-4",
+    "deepseek/deepseek-v4-flash-0731:free",
+    "nvidia/nemotron-3.5-lightning:free",
+    "liquid/lfm-2.5-2.6b:free",
+    "nex-agi/nex-n2.5-pro:free",
 ]
-
-CHAIRMAN_MODEL = "google/gemini-3-pro-preview"
+CHAIRMAN_MODEL = "deepseek/deepseek-v4-flash-0731:free"
 ```
 
-## Running the Application
+Any [OpenRouter model slug](https://openrouter.ai/models) works — free or paid.
 
-**Option 1: Use the start script**
-```bash
-./start.sh
-```
+---
 
-**Option 2: Run manually**
+## API
 
-Terminal 1 (Backend):
-```bash
-uv run python -m backend.main
-```
-
-Terminal 2 (Frontend):
-```bash
-cd frontend
-npm run dev
-```
-
-Then open http://localhost:5173 in your browser.
-
-## Tech Stack
-
-- **Backend:** FastAPI (Python 3.10+), async httpx, OpenRouter API
-- **Frontend:** React + Vite, react-markdown for rendering
-- **Storage:** JSON files in `data/conversations/`
-- **Package Management:** uv for Python, npm for JavaScript
+| Method | Endpoint | Description |
+|---|---|---|
+| `GET` | `/` | Health check |
+| `GET` | `/api/models` | Curated model catalogue |
+| `GET` | `/api/personas` | Available deliberation modes |
+| `GET/POST` | `/api/settings` | Get / update active council config |
+| `GET` | `/api/conversations` | List conversations |
+| `POST` | `/api/conversations` | Create conversation |
+| `POST` | `/api/conversations/{id}/message/stream` | Run council (SSE stream) |
+| `DELETE` | `/api/conversations/{id}` | Delete conversation |
